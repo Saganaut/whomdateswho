@@ -74,9 +74,10 @@ def dbpoop(celeb):
     pass
 
 def saveimage(celeb):
-    with open(celeb['profileimgpath'], 'wb') as f:
-        img = urllib2.urlopen(celeb['imgurl'])
-        f.write(img.read())
+    if not os.path.exists(celeb['profileimgpath']):
+        with open(celeb['profileimgpath'], 'wb') as f:
+            img = urllib2.urlopen(celeb['imgurl'])
+            f.write(img.read())
 
 def main():
     """main function for standalone usage"""
