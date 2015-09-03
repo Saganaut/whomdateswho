@@ -81,7 +81,8 @@ def main():
     usage = "usage: %prog [options] 1,2,4-7,9"
     parser = OptionParser(usage=usage)
     parser.add_option('-v', '--verbose', action='store_true', default=False)
-    parser.add_option('-i', '--img-dir', default='profiles')
+    parser.add_option('-i', '--img-dir', default='profiles', help='[default: %default]')
+    parser.add_option('-s', '--skip-n-celebs', default=0, type='int')
 
     (options, args) = parser.parse_args()
 
@@ -95,12 +96,21 @@ def main():
         pass
 
     # do stuff
+    celebnum = 0
     for pageindex in itertools.chain(*map(_parse_numbars, args[0].split(','))):
+
         if options.verbose:
             print('Page #%d' % pageindex)
         for celebname, imgurl, profileurl in getcelebs(pageindex):
+
+            celebnum += 1
+            if options.skip_n_celebs > 0:
+                options.skip_n_celebs -= 1
+                continue
+
             if options.verbose:
                 print('== %s ==' % celebname)
+                print('celeb #%d' % celebnum)
 
             celeb = parseceleb(profileurl)
             celeb['name'] = celebname
