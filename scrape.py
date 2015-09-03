@@ -74,7 +74,9 @@ def dbpoop(celeb):
     pass
 
 def saveimage(celeb):
-    pass
+    with open(celeb['profileimgpath'], 'wb') as f:
+        img = urllib2.urlopen(celeb['imgurl'])
+        f.write(img.read())
 
 def main():
     """main function for standalone usage"""
@@ -116,6 +118,8 @@ def main():
             celeb['name'] = celebname
             celeb['profileimgpath'] = os.path.join(options.img_dir, '%s.jpg' %
                                                    celebname.lower().replace(' ', ''))
+            celeb['imgurl'] = imgurl
+
             if options.verbose:
                 print('%d datees' % celeb['numdatees'])
 
