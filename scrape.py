@@ -6,6 +6,10 @@
 import sys
 from optparse import OptionParser
 import urllib2
+import itertools
+import time
+import random
+import os
 
 from bs4 import BeautifulSoup
 
@@ -59,19 +63,56 @@ def parseceleb(profileurl):
             'relationshipdeets': relationshipdeets,
             }
 
+def _parse_numbars(s):
+    if '-' in s:
+        x, y = map(int, s.split('-'))
+        return range(x, y + 1)
+    else:
+        return [int(s)]
+
+def dbpoop(celeb):
+    pass
+
+def saveimage(celeb):
+    pass
+
 def main():
     """main function for standalone usage"""
-    usage = "usage: %prog [options]"
+    usage = "usage: %prog [options] 1,2,4-7,9"
     parser = OptionParser(usage=usage)
+    parser.add_option('-v', '--verbose', action='store_true', default=False)
+    parser.add_option('-i', '--img-dir', default='profiles')
 
     (options, args) = parser.parse_args()
 
-    if len(args) != 0:
+    if len(args) != 1:
         parser.print_help()
         return 2
 
+    try:
+        os.mkdir(options.img_dir)
+    except OSError:
+        pass
+
     # do stuff
-    pass
+    for pageindex in itertools.chain(*map(_parse_numbars, args[0].split(','))):
+        if options.verbose:
+            print('Page #%d' % pageindex)
+        for celebname, imgurl, profileurl in getcelebs(pageindex):
+            if options.verbose:
+                print('== %s ==' % celebname)
+
+            celeb = parseceleb(profileurl)
+            celeb['name'] = celebname
+            celeb['profileimgpath'] = os.path.join(options.img_dir, '%s.jpg' %
+                                                   celebname.lower().replace(' ', ''))
+            if options.verbose:
+                print('%d datees' % celeb['numdatees'])
+
+            dbpoop(celeb)
+            saveimage(celeb)
+
+            time.sleep(random.randint(0, 7))
 
 if __name__ == '__main__':
     sys.exit(main())
