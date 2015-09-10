@@ -46,15 +46,31 @@ def parserelationship(relationshipurl):
     soup = BeautifulSoup(urllib2.urlopen(relationshipurl), 'html.parser')
     return dict(zip([x.text.lower() for x in soup.find_all(class_='w33pc posl')], [x.text.lower() for x in soup.find_all(class_='w60pc posr')]))
 
+def int_or_0(s):
+    try:
+        return int(s)
+    except ValueError:
+        return 0
+
 def parseceleb(profileurl):
     """extract a dictionary of celebrity dating properties given their profile"""
     soup = BeautifulSoup(urllib2.urlopen(profileurl), 'html.parser')
-    numcomments, numlikes = [int(x.text.split(' ')[0].replace(',', '')) for x in
-                             soup.find(class_='statsbox').find_all('a')[:2]]
-    starsign = soup.find(class_='posr italic').a['title'].lower()
+    try:
+        numcomments, numlikes = [int_or_0(x.text.split(' ')[0].replace(',', '')) for x in
+                                 soup.find(class_='statsbox').find_all('a')[:2]]
+    except ValueError:
+        numcomments, numlikes = 0, 0
+    try:
+        starsign = soup.find(class_='posr italic').a['title'].lower()
+    except AttributeError:
+        starsign = None
     celeblis = soup.find(class_='datingb').find_all('li')
     datees = list(_extractdatees(celeblis))
     relationshipdeets = [parserelationship(x['relationshipurl']) for x in datees]
+    try:
+        imgurl = soup.find(class_='cbox-nav2 banr').img['src']
+    except AttributeError:
+        imgurl = soup.find(class_='cbox-tmenu').img['src']
     assert(len(datees) == len(relationshipdeets))
 
     return {'numcomments': numcomments,
@@ -64,6 +80,7 @@ def parseceleb(profileurl):
             'datees': datees,
             'relationshipdeets': relationshipdeets,
             'profileurl': profileurl,
+            'imgurl': imgurl,
             }
 
 def _parse_numbars(s):
@@ -147,6 +164,29 @@ def dbpoop(celeb, database):
                             database)
         add_relationship(relationship, celeb, datee, database)
 
+def add_remaining_celebs(database, verbose=False, img_dir='profiles'):
+    conn = sqlite3.connect(database)
+    cur = conn.cursor()
+    # get all incomplete profiles
+    cur.execute('SELECT name, profileurl FROM celebs WHERE starsign is NULL')
+    for celebname, profileurl in cur.fetchall():
+        if verbose:
+            print('== %s ==' % celebname)
+
+        celeb = parseceleb(profileurl)
+        celeb['name'] = celebname
+        celeb['profileimgpath'] = os.path.join(img_dir, '%s.jpg' %
+                                               celebname.lower().replace(' ', ''))
+
+        if verbose:
+            print('%d datees' % celeb['numdatees'])
+
+        dbpoop(celeb, database)
+        saveimage(celeb)
+
+        time.sleep(random.randint(0, 7))
+    cur.close()
+
 def saveimage(celeb):
     if not os.path.exists(celeb['profileimgpath']):
         with open(celeb['profileimgpath'], 'wb') as f:
@@ -162,6 +202,8 @@ def main():
     parser.add_option('-s', '--skip-n-celebs', default=0, type='int')
     parser.add_option('-d', '--database', default='celebs.db',
                       help='Database to use [default: %default]')
+    parser.add_option('-r', '--remaining-celebs', default=False, action='store_true',
+                      help='Just crawl/add remaining, incomplete celebrities')
 
     (options, args) = parser.parse_args()
 
@@ -173,6 +215,10 @@ def main():
         os.mkdir(options.img_dir)
     except OSError:
         pass
+
+    if options.remaining_celebs:
+        add_remaining_celebs(options.database, options.verbose, options.img_dir)
+        sys.exit(0)
 
     # do stuff
     celebnum = 0
@@ -196,7 +242,6 @@ def main():
             celeb['name'] = celebname
             celeb['profileimgpath'] = os.path.join(options.img_dir, '%s.jpg' %
                                                    celebname.lower().replace(' ', ''))
-            celeb['imgurl'] = imgurl
 
             if options.verbose:
                 print('%d datees' % celeb['numdatees'])
@@ -205,6 +250,9 @@ def main():
             saveimage(celeb)
 
             time.sleep(random.randint(0, 7))
+
+        # add incomplete celebs
+        add_remaining_celebs(options.database, options.verbose, options.img_dir)
 
 if __name__ == '__main__':
     sys.exit(main())
