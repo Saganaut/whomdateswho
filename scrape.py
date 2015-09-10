@@ -10,8 +10,10 @@ import itertools
 import time
 import random
 import os
+import sqlite3
 
 from bs4 import BeautifulSoup
+from dateutil.parser import parse as dateparse
 
 mainurl = 'http://dating.famousfix.com/?tab=&pageno=%d'
 
@@ -61,6 +63,7 @@ def parseceleb(profileurl):
             'numdatees': len(celeblis),
             'datees': datees,
             'relationshipdeets': relationshipdeets,
+            'profileurl': profileurl,
             }
 
 def _parse_numbars(s):
@@ -70,8 +73,79 @@ def _parse_numbars(s):
     else:
         return [int(s)]
 
-def dbpoop(celeb):
-    pass
+def _init_tables(database):
+    conn = sqlite3.connect(database)
+    cur = conn.cursor()
+    cur.execute('CREATE TABLE IF NOT EXISTS celebs (name text PRIMARY KEY, starsign text, numdatees integer, numlikes integer, numcomments integer, profileurl text)')
+    cur.execute('CREATE TABLE IF NOT EXISTS relationships (name1 text, name2 text, type text, rumor integer, status text, startyear integer, endyear integer, PRIMARY KEY(name1, name2))')
+    conn.commit()
+    cur.close()
+
+def add_or_update_celeb(celeb, database):
+    try:
+        conn = sqlite3.connect(database)
+        cur = conn.cursor()
+
+        cur.execute('SELECT * FROM celebs WHERE name = ?', (celeb['name'], ))
+        row = cur.fetchone()
+        if not row:
+            # a celeb being inserted with knowledge only from the relationship
+            # will only have 2 entries: name/profileurl (for later parsing)
+            if len(celeb) > 2:
+                cur.execute('INSERT INTO celebs VALUES (?, ?, ?, ?, ?, ?)',
+                            (celeb['name'], celeb['starsign'], celeb['numdatees'], celeb['numlikes'], celeb['numcomments'], celeb['profileurl']))
+            else:
+                cur.execute('INSERT INTO celebs VALUES (?, ?, ?, ?, ?, ?)',
+                            (celeb['name'], None, None, None, None, celeb['profileurl']))
+        else:
+            if len(celeb) > 2:
+                cur.execute('UPDATE celebs SET starsign = ?, numdatees = ?, numlikes = ?, numcomments = ? WHERE name = ?', (celeb['starsign'], celeb['numdatees'], celeb['numlikes'], celeb['numcomments'], celeb['name']))
+
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        sys.stderr.write('Error add/update celeb "%s": %s\n' % (celeb['name'], str(e)))
+
+def parseyears(relationship):
+    try:
+        startyear = int(relationship['commenced dating'])
+        endyear = int(relationship['separated'])
+    except ValueError:
+        startyear = dateparse(relationship['commenced dating']).year
+        endyear = dateparse(relationship['separated']).year
+    except KeyError:
+        startyear = None
+        endyear = None
+    finally:
+        try:
+            return startyear, endyear
+        except UnboundLocalError:
+            return startyear, None
+
+def add_relationship(relationship, celeb, datee, database):
+    startyear, endyear = parseyears(relationship)
+    # this is to ensure we don't have duplicate relationships
+    # where name1/name2 are just switched.
+    name1, name2 = sorted([celeb['name'], datee['datee_name']])
+    try:
+        conn = sqlite3.connect(database)
+        cur = conn.cursor()
+
+        cur.execute('INSERT INTO relationships VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    (name1, name2, relationship['relationship type'], datee['rumorp'],
+                     relationship.get('relationship status', None), startyear, endyear))
+
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        sys.stderr.write('Error adding relationship %s-%s: %s\n' % (name1, name2, str(e)))
+
+def dbpoop(celeb, database):
+    add_or_update_celeb(celeb, database)
+    for datee, relationship in zip(celeb['datees'], celeb['relationshipdeets']):
+        add_or_update_celeb({'name': datee['datee_name'], 'profileurl': datee['datee_profileurl']},
+                            database)
+        add_relationship(relationship, celeb, datee, database)
 
 def saveimage(celeb):
     if not os.path.exists(celeb['profileimgpath']):
@@ -86,6 +160,8 @@ def main():
     parser.add_option('-v', '--verbose', action='store_true', default=False)
     parser.add_option('-i', '--img-dir', default='profiles', help='[default: %default]')
     parser.add_option('-s', '--skip-n-celebs', default=0, type='int')
+    parser.add_option('-d', '--database', default='celebs.db',
+                      help='Database to use [default: %default]')
 
     (options, args) = parser.parse_args()
 
@@ -100,6 +176,7 @@ def main():
 
     # do stuff
     celebnum = 0
+    _init_tables(options.database)
     for pageindex in itertools.chain(*map(_parse_numbars, args[0].split(','))):
 
         if options.verbose:
@@ -124,7 +201,7 @@ def main():
             if options.verbose:
                 print('%d datees' % celeb['numdatees'])
 
-            dbpoop(celeb)
+            dbpoop(celeb, options.database)
             saveimage(celeb)
 
             time.sleep(random.randint(0, 7))
